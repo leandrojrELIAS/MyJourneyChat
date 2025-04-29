@@ -1,6 +1,7 @@
-import auth from '@react-native-firebase/auth';
-import firestore from '@react-native-firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { initializeApp } from 'firebase/app';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import { getFirestore } from 'firebase/firestore';
 
 // Configuração do Firebase
 const firebaseConfig = {
@@ -12,11 +13,8 @@ const firebaseConfig = {
   appId: "1:814789046926:web:bb24c33c556b54b25d4fdf",
   measurementId: "G-79XZQK0LQ7",
 };
+const app = firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = getFirestore(app);
 
-
-// auth().setPersistence(auth.Auth.Persistence.LOCAL);
-// Persistência local já é padrão no React Native Firebase.
-
-// Exportar instâncias de auth e firestore
-export { auth, firestore as db };
-
+export { auth, db };

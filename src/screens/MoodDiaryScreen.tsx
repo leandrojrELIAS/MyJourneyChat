@@ -13,10 +13,10 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { auth, db } from '../services/firebaseConfig';
-import { completeMoodEntry } from '../screens/GamificationManager'; // Importar a função de gamificação
+import { completeMoodEntry } from '../screens/GamificationManager';
 import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
-import { QuerySnapshot, DocumentData } from '@react-native-firebase/firestore'; // Importar tipos do Firestore
+import { collection, query, where, onSnapshot, orderBy, addDoc } from 'firebase/firestore';
 
 // Definição dos tipos para a navegação
 type RootStackParamList = {
@@ -37,6 +37,7 @@ type Mood = {
   mood: string;
   note: string;
   createdAt: string;
+  userId: string;
 };
 
 // Interface para o estilo do gráfico
@@ -66,23 +67,24 @@ const MoodDiaryScreen = () => {
   const [chartLabels, setChartLabels] = useState<string[]>([]);
 
   useEffect(() => {
-    // Escutar registros de humor do Firestore
-    const user = auth().currentUser;
+    const user = auth.currentUser;
     if (user) {
-      const unsubscribe = db
-        .collection('moods')
-        .where('userId', '==', user.uid)
-        .orderBy('createdAt', 'desc')
-        .onSnapshot((snapshot: QuerySnapshot<DocumentData>) => {
+      const q = query(
+        collection(db, 'moods'),
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
           const moodsList: Mood[] = snapshot.docs.map((doc) => ({
             id: doc.id,
             ...doc.data(),
           } as Mood));
           setMoodHistory(moodsList);
 
-          // Filtrar registros do dia atual
           const today = new Date();
-          const todayString = today.toISOString().split('T')[0]; // Formato: "YYYY-MM-DD"
+          const todayString = today.toISOString().split('T')[0];
 
           const todayMoods = moodsList
             .filter((mood) => {
@@ -91,7 +93,6 @@ const MoodDiaryScreen = () => {
             })
             .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-          // Preparar dados para o gráfico (variações no mesmo dia)
           const moodValues = todayMoods.map((mood) => {
             switch (mood.mood) {
               case 'Feliz':
@@ -109,22 +110,23 @@ const MoodDiaryScreen = () => {
             }
           });
 
-          // Criar labels com o horário do registro (ex.: "14:49")
           const moodLabels = todayMoods.map((mood) => {
             const date = new Date(mood.createdAt);
             return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
           });
 
-          setChartData(moodValues.length > 0 ? moodValues : [3]); // Default para Neutro se vazio
+          setChartData(moodValues.length > 0 ? moodValues : [3]);
           setChartLabels(moodLabels.length > 0 ? moodLabels : ['Sem registros']);
-        }, (error) => {
+        },
+        (error) => {
           console.error('Erro ao escutar registros de humor:', error);
           Toast.show({
             type: 'error',
             text1: 'Erro',
             text2: 'Não foi possível carregar o histórico de humor.',
           });
-        });
+        }
+      );
 
       return () => unsubscribe();
     }
@@ -140,7 +142,7 @@ const MoodDiaryScreen = () => {
       return;
     }
 
-    const user = auth().currentUser;
+    const user = auth.currentUser;
     if (!user) {
       Toast.show({
         type: 'error',
@@ -152,16 +154,24 @@ const MoodDiaryScreen = () => {
     }
 
     try {
-      // Salvar no Firestore
-      await db.collection('moods').add({
+      // Salvar no Firestore com o userId explicitamente definido
+      await addDoc(collection(db, 'moods'), {
         userId: user.uid,
         mood: selectedMood,
         note: note.trim(),
         createdAt: new Date().toISOString(),
       });
 
-      // Registrar a entrada de humor no sistema de gamificação
-      await completeMoodEntry();
+      try {
+        await completeMoodEntry();
+      } catch (error) {
+        console.error('Erro ao atualizar gamificação:', error);
+        Toast.show({
+          type: 'warning',
+          text1: 'Aviso',
+          text2: 'Humor salvo, mas não foi possível atualizar a gamificação.',
+        });
+      }
 
       setSelectedMood(null);
       setNote('');

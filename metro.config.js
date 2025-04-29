@@ -1,32 +1,15 @@
 const { getDefaultConfig } = require('expo/metro-config');
 
-const config = getDefaultConfig(__dirname);
+module.exports = async () => {
+  const config = await getDefaultConfig(__dirname);
 
-// Adicionar extensões de arquivo que o Metro deve reconhecer
-config.resolver.assetExts = [
-  ...config.resolver.assetExts,
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'ttf',
-  'otf',
-];
+  // Garantir que resolver.blockList seja um array antes de usar o spread operator
+  config.resolver.blockList = Array.isArray(config.resolver.blockList)
+    ? [...config.resolver.blockList, /axios\/dist\/node\/axios\.cjs$/]
+    : [/axios\/dist\/node\/axios\.cjs$/];
 
-// Inicializar o blockList como um array e adicionar a pasta mz para ser ignorada
-config.resolver.blockList = [
-  /(node_modules[\/\\]mz)/, // Ignorar a pasta node_modules/mz
-];
+  // Adicionar suporte para extensões .cjs (opcional, mas pode ajudar)
+  config.resolver.assetExts = [...config.resolver.assetExts, 'cjs'];
 
-// Aumentar o tempo limite para processamento de assets
-config.server = {
-  ...config.server,
-  enhanceMiddleware: (middleware) => {
-    return (req, res, next) => {
-      req.setTimeout(30000); // Aumentar o tempo limite para 30 segundos
-      return middleware(req, res, next);
-    };
-  },
+  return config;
 };
-
-module.exports = config;

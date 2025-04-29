@@ -15,7 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Toast from 'react-native-toast-message';
 import { auth, db } from '../services/firebaseConfig';
-import axios from 'axios';
+import { collection, doc, setDoc } from 'firebase/firestore';
 
 // Definição dos tipos para a navegação
 type RootStackParamList = {
@@ -75,8 +75,11 @@ const CadastroScreen = () => {
 
     try {
       // Passo 1: Criar usuário no Firebase Auth
-      const userCredential = await auth().createUserWithEmailAndPassword(email, password);
+      const userCredential = await auth.createUserWithEmailAndPassword(email, password);
       const user = userCredential.user;
+      if (!user) {
+        throw new Error('Erro ao criar usuário: usuário não retornado pelo Firebase Auth.');
+      }
       console.log('Usuário criado no Firebase Auth:', user.uid);
 
       // Passo 2: Atualizar o nome do usuário
@@ -84,20 +87,39 @@ const CadastroScreen = () => {
       console.log('Nome do usuário atualizado:', name);
 
       // Passo 3: Salvar informações adicionais no Firestore
-      await db().collection('users').doc(user.uid).set({
+      await setDoc(doc(collection(db, 'users'), user.uid), {
         name,
         email,
         createdAt: new Date().toISOString(),
       });
       console.log('Dados salvos no Firestore para o usuário:', user.uid);
 
-      // Passo 4: Enviar mensagem ao Telegram
+      // Passo 4: Enviar mensagem ao Telegram usando fetch
       const telegramBotToken = '8178497791:AAE6Ka21h0jIldE0ROsN-tGx7Ias8QqcCh0';
       const telegramChatId = '798079047';
-      await axios.post(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
-        chat_id: telegramChatId,
-        text: `Novo usuário cadastrado: ${name} (${email}) em ${new Date().toLocaleString()}`,
+      const telegramUrl = `https://api.telegram.org/bot${telegramBotToken}/sendMessage`;
+      const telegramMessage = `Novo usuário cadastrado: ${name} (${email}) em ${new Date().toLocaleString()}`;
+
+      const response = await fetch(telegramUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chat_id: telegramChatId,
+          text: telegramMessage,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error('Erro ao enviar mensagem ao Telegram. Status: ' + response.status);
+      }
+
+      const responseData = await response.json();
+      if (!responseData.ok) {
+        throw new Error('Erro na resposta do Telegram: ' + responseData.description);
+      }
+
       console.log('Mensagem enviada ao Telegram');
 
       // Passo 5: Salvar estado de login
@@ -114,18 +136,18 @@ const CadastroScreen = () => {
     } catch (error: any) {
       console.error('Erro ao cadastrar:', error);
       let errorMessage = 'Erro desconhecido ao cadastrar.';
-      
+
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = 'Este e-mail já está em uso. Tente outro e-mail.';
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = 'O e-mail fornecido é inválido.';
       } else if (error.code === 'auth/weak-password') {
         errorMessage = 'A senha é muito fraca. Use pelo menos 6 caracteres.';
-      } else if (error.message.includes('Failed to fetch')) {
+      } else if (error.message.includes('Failed to fetch') || error.message.includes('Network Error')) {
         errorMessage = 'Erro de conexão. Verifique sua internet e tente novamente.';
       } else if (error.message.includes('firestore')) {
         errorMessage = 'Erro ao salvar os dados no Firestore. Verifique as permissões.';
-      } else if (error.message.includes('axios')) {
+      } else if (error.message.includes('Telegram')) {
         errorMessage = 'Erro ao enviar mensagem ao Telegram. Verifique o token e o chat ID.';
       } else {
         errorMessage = error.message || 'Erro ao cadastrar. Tente novamente.';

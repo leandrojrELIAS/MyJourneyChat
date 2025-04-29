@@ -66,7 +66,7 @@ const LoginScreen = () => {
     }
 
     try {
-      await auth().signInWithEmailAndPassword(email, password);
+      await auth.signInWithEmailAndPassword(email, password);
       await AsyncStorage.setItem('isLoggedIn', 'true');
       Toast.show({
         type: 'success',
@@ -115,7 +115,7 @@ const LoginScreen = () => {
     }
 
     try {
-      await auth().sendPasswordResetEmail(resetEmail);
+      await auth.sendPasswordResetEmail(resetEmail);
       Toast.show({
         type: 'success',
         text1: 'Sucesso',

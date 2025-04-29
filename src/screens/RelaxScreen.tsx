@@ -30,7 +30,7 @@ const musicTracks: MusicTrack[] = [
 const RelaxScreen = () => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [currentTrackId, setCurrentTrackId] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false); 
 
   useEffect(() => {
     const markVisit = async () => {

@@ -1,6 +1,8 @@
 import { auth, db } from '../services/firebaseConfig';
 import { format, differenceInDays, parseISO } from 'date-fns';
 import { getFirestore, doc, getDoc, setDoc, collection } from 'firebase/firestore';
+import { Asset } from 'expo-asset'; // Importar expo-asset
+import * as FileSystem from 'expo-file-system'; // Importar expo-file-system
 
 // Tipos para os dados de gamificação
 type Achievement = {
@@ -82,7 +84,7 @@ const getInitialGamificationData = (): GamificationData => ({
 
 // Função para obter o ID do usuário
 const getUserId = (): string => {
-  const user = auth().currentUser;
+  const user = auth.currentUser;
   if (user) {
     return user.uid;
   }
@@ -107,9 +109,7 @@ const initializeGamificationData = async (): Promise<GamificationData> => {
 
     const storedData = docSnap.data() as GamificationData;
     console.log('Dados recuperados do Firestore:', storedData);
-    console.log('Dados recuperados do Firestore:', storedData);
 
-    // Mesclar os dados salvos com os dados iniciais para garantir compatibilidade
     const mergedData: GamificationData = {
       ...initialData,
       ...storedData,
@@ -125,13 +125,12 @@ const initializeGamificationData = async (): Promise<GamificationData> => {
 
     console.log('Dados mesclados com sucesso:', mergedData);
     return mergedData;
-  } 
-  catch (error) {
+  } catch (error) {
     console.error('Erro ao inicializar os dados de gamificação no Firestore:', error);
-    throw error; // Propaga o erro para ser tratado na UI
-  } 
-}
-  
+    throw error;
+  }
+};
+
 const saveGamificationData = async (data: GamificationData) => {
   try {
     const userId = getUserId();
@@ -150,22 +149,32 @@ const checkAndResetConsecutiveDays = (data: GamificationData, currentDate: strin
   const updatedData = { ...data };
 
   if (updatedData.lastMeditationDate) {
-    const lastMeditation = parseISO(updatedData.lastMeditationDate);
-    const daysDiff = differenceInDays(new Date(currentDate), lastMeditation);
-    if (daysDiff > 1) {
+    try {
+      const lastMeditation = parseISO(updatedData.lastMeditationDate);
+      const daysDiff = differenceInDays(new Date(currentDate), lastMeditation);
+      if (daysDiff > 1) {
+        updatedData.consecutiveMeditationDays = 0;
+        updatedData.achievements.find(a => a.id === 'meditation_master')!.progress.current = 0;
+        updatedData.achievements.find(a => a.id === 'dedicated_meditator')!.progress.current = 0;
+      }
+    } catch (error) {
+      console.error('Erro ao processar lastMeditationDate:', error);
       updatedData.consecutiveMeditationDays = 0;
-      updatedData.achievements.find(a => a.id === 'meditation_master')!.progress.current = 0;
-      updatedData.achievements.find(a => a.id === 'dedicated_meditator')!.progress.current = 0;
     }
   }
 
   if (updatedData.lastMoodDate) {
-    const lastMood = parseISO(updatedData.lastMoodDate);
-    const daysDiff = differenceInDays(new Date(currentDate), lastMood);
-    if (daysDiff > 1) {
+    try {
+      const lastMood = parseISO(updatedData.lastMoodDate);
+      const daysDiff = differenceInDays(new Date(currentDate), lastMood);
+      if (daysDiff > 1) {
+        updatedData.consecutiveMoodDays = 0;
+        updatedData.achievements.find(a => a.id === 'emotional_aware')!.progress.current = 0;
+        updatedData.achievements.find(a => a.id === 'persistent_emotional')!.progress.current = 0;
+      }
+    } catch (error) {
+      console.error('Erro ao processar lastMoodDate:', error);
       updatedData.consecutiveMoodDays = 0;
-      updatedData.achievements.find(a => a.id === 'emotional_aware')!.progress.current = 0;
-      updatedData.achievements.find(a => a.id === 'persistent_emotional')!.progress.current = 0;
     }
   }
 
@@ -178,16 +187,21 @@ const checkPerfectWeek = (dailyActivities: { date: string; count: number }[]): {
 
   const sortedActivities = dailyActivities
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .slice(-7); // Últimos 7 dias
+    .slice(-7);
 
   let consecutiveDays = 0;
   for (let i = 0; i < sortedActivities.length - 1; i++) {
-    const currentDate = parseISO(sortedActivities[i].date);
-    const nextDate = parseISO(sortedActivities[i + 1].date);
-    if (differenceInDays(nextDate, currentDate) === 1 && sortedActivities[i].count > 0) {
-      consecutiveDays++;
-    } else {
-      break;
+    try {
+      const currentDate = parseISO(sortedActivities[i].date);
+      const nextDate = parseISO(sortedActivities[i + 1].date);
+      if (differenceInDays(nextDate, currentDate) === 1 && sortedActivities[i].count > 0) {
+        consecutiveDays++;
+      } else {
+        break;
+      }
+    } catch (error) {
+      console.error('Erro ao processar datas em checkPerfectWeek:', error);
+      return { achieved: false, progress: 0 };
     }
   }
   if (sortedActivities[sortedActivities.length - 1].count > 0) {
@@ -209,7 +223,13 @@ const updateCertificates = (data: GamificationData): GamificationData => {
 // Função para registrar uma meditação
 const completeMeditation = async (): Promise<GamificationData> => {
   let data = await initializeGamificationData();
-  const currentDate = format(new Date(), 'yyyy-MM-dd');
+  let currentDate: string;
+  try {
+    currentDate = format(new Date(), 'yyyy-MM-dd');
+  } catch (error) {
+    console.error('Erro ao formatar a data em completeMeditation:', error);
+    currentDate = new Date().toISOString().split('T')[0];
+  }
 
   data = checkAndResetConsecutiveDays(data, currentDate);
 
@@ -217,9 +237,18 @@ const completeMeditation = async (): Promise<GamificationData> => {
   data.totalMeditations += 1;
   data.totalActivities += 1;
 
-  if (data.lastMeditationDate && differenceInDays(new Date(currentDate), parseISO(data.lastMeditationDate)) === 1) {
-    data.consecutiveMeditationDays += 1;
-  } else if (!data.lastMeditationDate || differenceInDays(new Date(currentDate), parseISO(data.lastMeditationDate)) > 1) {
+  if (data.lastMeditationDate) {
+    try {
+      if (differenceInDays(new Date(currentDate), parseISO(data.lastMeditationDate)) === 1) {
+        data.consecutiveMeditationDays += 1;
+      } else {
+        data.consecutiveMeditationDays = 1;
+      }
+    } catch (error) {
+      console.error('Erro ao calcular diferença de dias em completeMeditation:', error);
+      data.consecutiveMeditationDays = 1;
+    }
+  } else {
     data.consecutiveMeditationDays = 1;
   }
 
@@ -232,7 +261,6 @@ const completeMeditation = async (): Promise<GamificationData> => {
     data.dailyActivities.push({ date: currentDate, count: 1 });
   }
 
-  // Atualizar progresso das conquistas
   data.achievements.find(a => a.id === 'relax_beginner')!.progress.current = Math.min(data.consecutiveMeditationDays, 1);
   data.achievements.find(a => a.id === 'meditation_master')!.progress.current = Math.min(data.consecutiveMeditationDays, 5);
   data.achievements.find(a => a.id === 'dedicated_meditator')!.progress.current = Math.min(data.consecutiveMeditationDays, 10);
@@ -246,7 +274,6 @@ const completeMeditation = async (): Promise<GamificationData> => {
   const perfectWeek = checkPerfectWeek(data.dailyActivities);
   data.achievements.find(a => a.id === 'perfect_week')!.progress.current = perfectWeek.progress;
 
-  // Verificar conquistas
   if (data.consecutiveMeditationDays >= 1) {
     const relaxBeginner = data.achievements.find(a => a.id === 'relax_beginner');
     if (relaxBeginner) relaxBeginner.achieved = true;
@@ -303,7 +330,13 @@ const completeMeditation = async (): Promise<GamificationData> => {
 // Função para registrar um humor
 const completeMoodEntry = async (): Promise<GamificationData> => {
   let data = await initializeGamificationData();
-  const currentDate = format(new Date(), 'yyyy-MM-dd');
+  let currentDate: string;
+  try {
+    currentDate = format(new Date(), 'yyyy-MM-dd');
+  } catch (error) {
+    console.error('Erro ao formatar a data em completeMoodEntry:', error);
+    currentDate = new Date().toISOString().split('T')[0];
+  }
 
   data = checkAndResetConsecutiveDays(data, currentDate);
 
@@ -311,9 +344,18 @@ const completeMoodEntry = async (): Promise<GamificationData> => {
   data.totalMoodEntries += 1;
   data.totalActivities += 1;
 
-  if (data.lastMoodDate && differenceInDays(new Date(currentDate), parseISO(data.lastMoodDate)) === 1) {
-    data.consecutiveMoodDays += 1;
-  } else if (!data.lastMoodDate || differenceInDays(new Date(currentDate), parseISO(data.lastMoodDate)) > 1) {
+  if (data.lastMoodDate) {
+    try {
+      if (differenceInDays(new Date(currentDate), parseISO(data.lastMoodDate)) === 1) {
+        data.consecutiveMoodDays += 1;
+      } else {
+        data.consecutiveMoodDays = 1;
+      }
+    } catch (error) {
+      console.error('Erro ao calcular diferença de dias em completeMoodEntry:', error);
+      data.consecutiveMoodDays = 1;
+    }
+  } else {
     data.consecutiveMoodDays = 1;
   }
 
@@ -326,7 +368,6 @@ const completeMoodEntry = async (): Promise<GamificationData> => {
     data.dailyActivities.push({ date: currentDate, count: 1 });
   }
 
-  // Atualizar progresso das conquistas
   data.achievements.find(a => a.id === 'emotional_aware')!.progress.current = Math.min(data.consecutiveMoodDays, 3);
   data.achievements.find(a => a.id === 'persistent_emotional')!.progress.current = Math.min(data.consecutiveMoodDays, 7);
   data.achievements.find(a => a.id === 'mood_explorer')!.progress.current = Math.min(data.totalMoodEntries, 5);
@@ -339,7 +380,6 @@ const completeMoodEntry = async (): Promise<GamificationData> => {
   const perfectWeek = checkPerfectWeek(data.dailyActivities);
   data.achievements.find(a => a.id === 'perfect_week')!.progress.current = perfectWeek.progress;
 
-  // Verificar conquistas
   if (data.consecutiveMoodDays >= 3) {
     const emotionalAware = data.achievements.find(a => a.id === 'emotional_aware');
     if (emotionalAware) emotionalAware.achieved = true;
@@ -475,13 +515,53 @@ const visitScreen = async (screen: string): Promise<GamificationData> => {
 // Função para obter os dados de gamificação
 const getGamificationData = async (): Promise<GamificationData> => {
   const data = await initializeGamificationData();
-  const currentDate = format(new Date(), 'yyyy-MM-dd');
+  let currentDate: string;
+  try {
+    currentDate = format(new Date(), 'yyyy-MM-dd');
+  } catch (error) {
+    console.error('Erro ao formatar a data em getGamificationData:', error);
+    currentDate = new Date().toISOString().split('T')[0];
+  }
   return checkAndResetConsecutiveDays(data, currentDate);
 };
 
-// Função para obter as imagens dos certificados
-const getCertificateImage = (level: string) => {
-  return CERTIFICATE_IMAGES[level as keyof typeof CERTIFICATE_IMAGES];
+// Função para obter as imagens dos certificados como URI de arquivo
+const getCertificateImage = async (level: string): Promise<string> => {
+  const asset = CERTIFICATE_IMAGES[level as keyof typeof CERTIFICATE_IMAGES];
+  if (!asset) {
+    throw new Error(`Imagem do certificado para o nível ${level} não encontrada.`);
+  }
+
+  try {
+    // Carregar o recurso usando expo-asset
+    const assetModule = Asset.fromModule(asset);
+    await assetModule.downloadAsync(); // Garante que o recurso esteja disponível
+
+    // Verificar se o recurso foi carregado corretamente
+    if (!assetModule.localUri && !assetModule.uri) {
+      throw new Error(`Não foi possível obter o URI do recurso para o certificado ${level}.`);
+    }
+
+    // Definir o caminho de destino no sistema de arquivos temporário
+    const fileUri = `${FileSystem.cacheDirectory}certificate-${level}.png`;
+
+    // Copiar o recurso para o sistema de arquivos
+    await FileSystem.copyAsync({
+      from: assetModule.localUri || assetModule.uri,
+      to: fileUri,
+    });
+
+    // Verificar se o arquivo foi criado
+    const fileInfo = await FileSystem.getInfoAsync(fileUri);
+    if (!fileInfo.exists) {
+      throw new Error(`Falha ao copiar o certificado ${level} para o sistema de arquivos.`);
+    }
+
+    return fileUri; // Retorna o URI do arquivo (ex.: file:///data/user/0/host.exp.exponent/cache/certificate-bronze.png)
+  } catch (error) {
+    console.error(`Erro ao obter URI do certificado ${level}:`, error);
+    throw error;
+  }
 };
 
 export {
